@@ -1,0 +1,112 @@
+{
+  "enrich": {
+    "object_types": {
+      "Supplier": {
+        "label": "供应商",
+        "description": "向公司提供商品或服务的外部单位",
+        "properties": {
+          "name": {"label": "名称"},
+          "rating": {"label": "评级"},
+          "blacklisted": {"label": "是否黑名单"}
+        }
+      },
+      "PurchaseOrder": {
+        "label": "采购单",
+        "description": "一次采购申请及其状态",
+        "properties": {
+          "title": {"label": "采购内容"},
+          "amount": {"label": "金额（元）"},
+          "status": {"label": "状态"},
+          "requester": {"label": "申请人"}
+        }
+      }
+    },
+    "new_object_types": {},
+    "roles": [
+      {"id": "employee", "label": "员工", "doc": "docs/采购管理制度.md", "quote": "公司员工、部门经理及财务总监均可通过采购系统提交采购单"},
+      {"id": "dept_manager", "label": "部门经理", "doc": "docs/采购管理制度.md", "quote": "单笔采购金额超过10000元的，须经部门经理审批。"},
+      {"id": "cfo", "label": "财务总监", "doc": "docs/采购管理制度.md", "quote": "单笔采购金额超过50000元的，须经财务总监审批。"}
+    ]
+  },
+
+  "extract:docs/采购管理制度.md#0": {
+    "actions": [
+      {
+        "name": "submit_purchase_order",
+        "label": "提交采购单",
+        "description": "提交一张写明采购内容、金额和供应商的采购单",
+        "allowed_roles": ["employee", "dept_manager", "cfo"],
+        "parameters": {
+          "title": {"type": "string"},
+          "amount": {"type": "number"},
+          "supplier": {"type": "object_ref", "object_type": "Supplier"}
+        },
+        "effects": [
+          {"create": "PurchaseOrder", "as": "po",
+           "set": {"title": "params.title", "amount": "params.amount", "requester": "actor.id", "status": "'approved'"}},
+          {"link": "supplier", "from": "po", "to": "params.supplier"}
+        ],
+        "quote": "公司员工、部门经理及财务总监均可通过采购系统提交采购单，采购单须写明采购内容、金额和供应商。"
+      },
+      {
+        "name": "cancel_purchase_order",
+        "label": "取消采购单",
+        "description": "取消已批准但尚未付款的采购单",
+        "allowed_roles": ["employee", "dept_manager", "cfo"],
+        "parameters": {"po": {"type": "object_ref", "object_type": "PurchaseOrder"}},
+        "effects": [{"update": "params.po", "set": {"status": "'cancelled'"}}],
+        "quote": "采购单批准后、付款前，申请人可以取消本人提交的采购单；财务总监可以取消任何未付款的采购单。"
+      },
+      {
+        "name": "blacklist_supplier",
+        "label": "拉黑供应商",
+        "description": "将存在质量或合规问题的供应商列入黑名单",
+        "allowed_roles": ["cfo"],
+        "parameters": {"supplier": {"type": "object_ref", "object_type": "Supplier"}},
+        "effects": [{"update": "params.supplier", "set": {"blacklisted": true}}],
+        "quote": "财务总监负责供应商准入，可将存在质量或合规问题的供应商列入黑名单。"
+      }
+    ],
+    "rules": [
+      {"id": "dept_manager_over_10k", "action": "submit_purchase_order", "when": "params.amount > 10000",
+       "then": {"require_approval": "dept_manager"}, "message": "单笔超过 1 万元须部门经理审批",
+       "effective_date": null, "quote": "单笔采购金额超过10000元的，须经部门经理审批。"},
+      {"id": "cfo_over_50k", "action": "submit_purchase_order", "when": "params.amount > 50000",
+       "then": {"require_approval": "cfo"}, "message": "单笔超过 5 万元须财务总监审批",
+       "effective_date": null, "quote": "单笔采购金额超过50000元的，须经财务总监审批。"},
+      {"id": "no_blacklisted_supplier", "action": "submit_purchase_order", "when": "params.supplier.blacklisted",
+       "then": "deny", "message": "不得向黑名单供应商采购", "effective_date": null,
+       "quote": "不得向列入黑名单的供应商采购。"},
+      {"id": "warn_rating_c", "action": "submit_purchase_order", "when": "params.supplier.rating == 'C'",
+       "then": "warn", "message": "评级为 C 的供应商须关注交付风险", "effective_date": null,
+       "quote": "评级为C的供应商须重点关注交付风险。"},
+      {"id": "cancel_only_before_payment", "action": "cancel_purchase_order", "when": "params.po.status != 'approved'",
+       "then": "deny", "message": "只有已批准、未付款的采购单可以取消", "effective_date": null,
+       "quote": "已付款的采购单不得取消。"},
+      {"id": "cancel_own_or_cfo", "action": "cancel_purchase_order",
+       "when": "params.po.requester != actor.id and actor.role != 'cfo'",
+       "then": "deny", "message": "只能取消本人的采购单（财务总监除外）", "effective_date": null,
+       "quote": "采购单批准后、付款前，申请人可以取消本人提交的采购单；财务总监可以取消任何未付款的采购单。"}
+    ],
+    "facts": [],
+    "roles": []
+  },
+
+  "extract:docs/关于调整采购审批权限的通知.md#0": {
+    "actions": [],
+    "rules": [
+      {"id": "cfo_over_30k", "action": "submit_purchase_order", "when": "params.amount > 30000",
+       "then": {"require_approval": "cfo"}, "message": "单笔超过 3 万元须财务总监审批",
+       "effective_date": "2026-12-01",
+       "quote": "自2026年12月1日起，单笔采购金额超过30000元的，须经财务总监审批。"},
+      {"id": "no_purchase_from_suspended", "action": "submit_purchase_order", "when": "params.supplier.suspended",
+       "then": "deny", "message": "暂停合作的供应商不得采购", "effective_date": null,
+       "quote": "各部门暂停向其采购。"}
+    ],
+    "facts": [
+      {"type": "Supplier", "id": "S-003", "set": {"blacklisted": true},
+       "quote": "供应商华达电子（编号S-003）因多批次产品质量不合格，即日起列入黑名单，各部门暂停向其采购。"}
+    ],
+    "roles": []
+  }
+}

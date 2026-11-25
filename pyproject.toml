@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ontology-anything"
+version = "0.1.0"
+description = "Turn documents and tables into an executable ontology -- objects, links and rule-checked actions -- with provenance and human review."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    # not on PyPI yet: installed straight from its repository
+    "nano-onto @ git+https://github.com/JayLZhou/nano-ontology.git",
+    "PyYAML>=6.0",
+]
+keywords = ["ontology", "knowledge-graph", "llm", "agents", "information-extraction", "palantir"]
+
+[project.optional-dependencies]
+office = ["openpyxl>=3.1", "pypdf>=4", "python-docx>=1.1"]
+docling = ["docling>=2"]
+dev = ["pytest>=7", "openpyxl>=3.1"]
+all = ["openpyxl>=3.1", "pypdf>=4", "python-docx>=1.1"]
+
+[project.urls]
+Homepage = "https://github.com/JayLZhou/Ontology-Anything"
+Issues = "https://github.com/JayLZhou/Ontology-Anything/issues"
+
+[project.scripts]
+ontology-anything = "ontology_anything.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ontology_anything*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

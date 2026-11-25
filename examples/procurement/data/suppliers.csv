@@ -1,0 +1,9 @@
+supplier_id,name,rating,blacklisted
+S-001,联华办公,A,false
+S-002,星辰网络设备,B,false
+S-003,华达电子,C,false
+S-004,中科仪器,A,false
+S-005,东方纸业,B,false
+S-006,远航物流,C,false
+S-007,蓝海软件,A,false
+S-008,金石建材,B,true

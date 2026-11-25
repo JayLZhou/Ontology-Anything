@@ -1,0 +1,11 @@
+po_id,title,amount,supplier_id,status,requester
+PO-0001,办公椅 20 把,8600,S-001,paid,alice
+PO-0002,交换机 4 台,23800,S-002,approved,dave
+PO-0003,示波器 1 台,46500,S-004,paid,erin
+PO-0004,打印纸 50 箱,4200,S-005,paid,alice
+PO-0005,年度物流服务,62000,S-006,approved,frank
+PO-0006,正版软件授权,18000,S-007,cancelled,dave
+PO-0007,电容 5000 只,3100,S-003,paid,erin
+PO-0008,服务器 2 台,71000,S-002,approved,grace
+PO-0009,会议室投影仪,9800,S-001,paid,alice
+PO-0010,实验台 6 张,15500,S-004,approved,frank
