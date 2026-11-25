@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontology-anything"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn documents and tables into an executable ontology -- objects, links and rule-checked actions -- with provenance and human review."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,7 +28,7 @@ keywords = ["ontology", "knowledge-graph", "llm", "agents", "information-extract
 [project.optional-dependencies]
 office = ["openpyxl>=3.1", "pypdf>=4", "python-docx>=1.1"]
 docling = ["docling>=2"]
-dev = ["pytest>=7", "openpyxl>=3.1"]
+dev = ["pytest>=7", "openpyxl>=3.1", "python-docx>=1.1"]
 all = ["openpyxl>=3.1", "pypdf>=4", "python-docx>=1.1"]
 
 [project.urls]

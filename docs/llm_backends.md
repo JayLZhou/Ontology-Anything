@@ -24,6 +24,35 @@ Local servers usually ignore the key, but one must be set: use any placeholder s
 
 Requests use temperature 0 and JSON mode (`response_format: json_object`). If the endpoint rejects JSON mode with HTTP 400, the client retries without it and keeps it off for the rest of the run; answers wrapped in code fences or surrounded by prose are still parsed.
 
+## Long corpora: workers, cache, retries
+
+```bash
+ontology-anything build ./docs ./data -o out --workers 8
+```
+
+**Workers.** Extraction calls are sent in batches of `--workers` (default 1, or `OA_WORKERS`). All calls of a batch are given the same list of actions found so far, and their answers are merged in document order, so the result does not depend on which call returns first. The trade-off is visibility: within a batch, one chunk cannot reuse an action name another chunk is defining at the same moment. With one worker every chunk sees everything before it.
+
+**Cache.** With a real model, answers are stored under `<out>/.llm-cache` (`--cache-dir` to move it, `--no-cache` to disable), one file per prompt, keyed by a hash of the endpoint, model, temperature and the complete prompt. Consequences:
+
+- An interrupted build resumes where it stopped when you run the same command again.
+- Editing one document re-asks about its own chunks, and about any other chunk whose prompt changes as a result. Prompts contain the schema, the roles and the actions found so far, so an edit that adds a role or renames an action reaches further than one that rewords a sentence. The single `enrich` call is repeated when the edit falls within the first 2,000 characters of a document.
+- Changing the model, the endpoint or the prompts invalidates the cache by construction.
+- Replies that are not valid JSON are never cached, so they are retried next time.
+
+The build prints how many calls were new and how many came from the cache. The cache sits *in front of* the model and behind recording: `--llm record:<file>` still writes every answer to the cassette. Replays do not use it.
+
+**Retries.** HTTP 408, 409, 429 and 5xx responses, timeouts and connection errors are retried three times with exponential backoff (2 s, 4 s, 8 s), or after the server's `Retry-After`. Other errors, such as 401, fail immediately. A call that still fails becomes a note on the draft and the build continues with the remaining chunks.
+
+In Python:
+
+```python
+from ontology_anything.llm import CachedLLM, OpenAICompatLLM
+
+llm = CachedLLM(OpenAICompatLLM(retries=5), "out/.llm-cache")
+draft = build(corpus, llm, workers=8, skip_irrelevant=True)
+print(llm.misses, "new calls,", llm.hits, "from cache")
+```
+
 ## Record and replay
 
 Every call carries a stable **key** -- `enrich`, or `extract:<document id>#<chunk index>` -- and a *cassette* is a JSON file mapping keys to answers:

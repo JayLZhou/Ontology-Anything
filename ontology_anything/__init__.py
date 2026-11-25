@@ -4,7 +4,7 @@ Produces drafts in nano-onto's format, so an approved result can be served to
 agents straight away (``nano-onto serve-mcp``).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .documents import Corpus, load_corpus  # noqa: E402
 from .pipeline import Draft, build, find_conflicts, quote_found  # noqa: E402

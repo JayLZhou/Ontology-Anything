@@ -27,6 +27,7 @@
 
 ## 🎉 News
 
+- [X] [2026.11] 🎯 v0.2.0: **tables inside documents** (Markdown, DOCX, HTML) are read in place and record lists become data; **long corpora** get concurrent extraction, an on-disk answer cache with resume, automatic retries and an optional filter for chunks without rules.
 - [X] [2026.11] 🎯 Ontology-Anything v0.1.0 is released: tables + documents → reviewed, executable ontology, with a demo that runs without an API key.
 
 ---
@@ -52,6 +53,8 @@ It is built on one principle: **the model is not trusted**. Every rule must quot
 - **⚔️ Conflict Detection** - Finds rules with the same condition and different thresholds across documents and suggests a resolution from document dates
 - **🗓️ Scheduled Rule Changes** - "Effective from 1 December" becomes two rules that switch over on that date by themselves
 - **📊 Deterministic Table Schema** - Types, primary keys, ID prefixes, enums and foreign keys → links are inferred from spreadsheets without any model
+- **🧩 Tables Inside Documents** - Tables in Markdown, DOCX and HTML stay in the text as tables, so rules written as a matrix can be read and quoted; tables that list records become data like a spreadsheet
+- **⚡ Built for Long Corpora** - Concurrent extraction, an on-disk answer cache that resumes interrupted builds and only re-asks about what changed, automatic retries on rate limits
 - **🧾 Facts Applied to Data** - "Supplier S-003 is blacklisted" is checked against the records and applied to the seed data on approval
 - **🙋 Human in the Loop** - A readable review report, explicit decisions, and an approval log of everything that was kept, dropped and scheduled
 - **📼 Record / Replay** - Record a model's answers once, then rebuild deterministically with no network: for tests, CI and iterating on review decisions
@@ -79,6 +82,7 @@ Spreadsheets already contain most of a schema, so no model is asked for it.
 - **🔑 Keys and Prefixes**: the primary key is a unique, fully populated column, preferring names that look like identifiers; a shared ID prefix such as `PO-` is recorded.
 - **🧮 Enums**: low-cardinality string columns become enumerations.
 - **🔗 Foreign Keys → Links**: a column whose values are all primary keys of another table becomes a link type, and the rows become link instances. A plain value column that merely happens to match is not treated as a key.
+- **🧩 Tables Inside Documents**: a table in a document that has an identifier column (an appendix listing approved suppliers) is treated like a spreadsheet and can be the target of links from one. A table without one (an approval matrix, a fee schedule) is a *rule*, not data: it stays in the text for the extraction stage.
 
 ### 2. Enrichment (LLM)
 
@@ -86,7 +90,7 @@ One call over excerpts of the documents adds what tables cannot express: human-r
 
 ### 3. Extraction (LLM)
 
-Each document chunk is read with the inferred schema in the prompt, so the model writes against real property names. It returns:
+Each document chunk is read with the inferred schema in the prompt, so the model writes against real property names. Chunks are sent one at a time or in parallel batches; every chunk is told which actions earlier ones found, so that rules in a later notice attach to the action a policy defined. It returns:
 
 - **⚙️ Actions**: name, parameters (including references to objects), allowed roles and effects (`create`, `update`, `link`).
 - **📏 Rules**: a condition in nano-onto's expression language, an outcome (`deny`, `warn`, or `require_approval` by a role), a message, and an effective date when the text gives one.
@@ -240,7 +244,37 @@ draft = build(corpus, MyLLM(), name="procurement")
 
 See [Models: providers, record / replay, custom clients](docs/llm_backends.md).
 
-#### 6. Tables Only (No Model)
+#### 6. Long Corpora
+
+```bash
+ontology-anything build ./policies ./exports -o out --workers 8 --skip-irrelevant
+```
+
+- **`--workers 8`** sends eight extraction calls at a time. Chunks in the same batch do not see the actions the others find, only those of earlier batches; with the default of 1 every chunk sees everything before it.
+- **Answers are cached** in `out/.llm-cache`, keyed by model and prompt. Run the same command again after an interruption, or after editing one document, and only the prompts that changed are sent: the build prints `model calls: 3 new, 212 answered from out/.llm-cache`. `--no-cache` turns it off.
+- **Rate limits and transient errors** (HTTP 429, 5xx, timeouts) are retried with backoff, honouring `Retry-After`.
+- **`--skip-irrelevant`** does not send chunks that contain no rule-like wording at all (no "must", "may not", "approval", "须", "不得", …). It is a keyword test, so it is off by default; every skipped chunk is listed in the notes of `review.md`.
+- **`--chunk-size 3000`** sends smaller pieces, which makes skipping and caching finer-grained.
+
+#### 7. Tables Inside Documents
+
+```markdown
+## Appendix 1: Approved suppliers        ← has an id column: becomes the object type ApprovedSupplier
+
+| supplier_id | name |
+|---|---|
+| S-1 | Acme |
+
+Table 2: Approval limits                 ← no id column: stays text, read as rules
+
+| Amount | Approver |
+|---|---|
+| over 50,000 | CFO |
+```
+
+The same applies to tables in DOCX and HTML files, and to PDFs parsed with `--parser docling`. `--doc-tables all` turns every table into data, `--doc-tables off` none; the default `auto` is described above, and the notes of `review.md` say what happened to each table.
+
+#### 8. Tables Only (No Model)
 
 ```bash
 ontology-anything build ./exports -o out --llm none
@@ -285,6 +319,7 @@ OA_API_KEY=your-api-key                      # falls back to OPENAI_API_KEY
 OA_BASE_URL=https://api.deepseek.com/v1      # Optional, defaults to OpenAI
 OA_MODEL=deepseek-chat                       # Optional, defaults to gpt-4o-mini
 OA_LLM=openai                                # Optional default for `build --llm`
+OA_WORKERS=8                                 # Optional default for `build --workers`
 ```
 
 > **Note**: No API key is needed for the demo, the examples, the tests, `--llm replay:<file>` or `--llm none`.
@@ -302,6 +337,11 @@ OA_LLM=openai                                # Optional default for `build --llm
 | `--model` | model name, overriding `OA_MODEL` |
 | `--parser builtin\|docling` | how PDF / DOCX / PPTX are read (see below) |
 | `--today YYYY-MM-DD` | the date used to decide whether a newer rule is already in force |
+| `--workers N` | extraction calls sent at a time (default 1, or `OA_WORKERS`) |
+| `--chunk-size N` | characters per document chunk (default 6000) |
+| `--skip-irrelevant` | do not send chunks without any rule-like wording |
+| `--doc-tables auto\|all\|off` | which tables inside documents also become data (default `auto`: those with an id column) |
+| `--cache-dir DIR` / `--no-cache` | where model answers are cached (default `<out>/.llm-cache`) / do not cache |
 
 ### `approve` Options
 
@@ -316,7 +356,7 @@ OA_LLM=openai                                # Optional default for `build --llm
 
 ### Parser Configuration
 
-- **Built-in (default)**: light parsers with no model downloads -- pypdf for PDF text, python-docx for DOCX paragraphs, a tag stripper for HTML. Good for born-digital text.
+- **Built-in (default)**: light parsers with no model downloads -- pypdf for PDF text, python-docx for DOCX paragraphs, headings and tables in reading order, and an HTML reader that keeps headings and tables. Good for born-digital text. Tables in PDFs are not recovered by the built-in parser.
 - **Docling**: `--parser docling` routes PDF, DOCX and PPTX through [Docling](https://github.com/docling-project/docling) for layout-aware parsing and scanned pages. Quote verification is strict, so clean text matters: prefer Docling for complex layouts.
 
 ### Output Files
@@ -345,6 +385,7 @@ OA_LLM=openai                                # Optional default for `build --llm
 
 - **Delimited text** - `.csv` (comma, semicolon or tab, detected), `.tsv`
 - **Excel** - `.xlsx`, `.xlsm`; one object type per sheet (needs `[office]`)
+- **Tables inside documents** - Markdown pipe tables, DOCX tables, HTML `<table>`, and whatever Docling exports as tables
 
 ### What Is Extracted
 
@@ -360,13 +401,17 @@ Unsupported files are skipped and listed in the notes of the review report.
 
 ## ⚠️ Limitations
 
-- Every chunk of every document is sent to the model; cost grows with the corpus (see roadmap).
+- By default every chunk of every document is sent to the model once. The cache makes rebuilds cheap and `--skip-irrelevant` drops chunks without rule wording, but there is no retrieval of the relevant chunks per action yet (see roadmap).
+- With `--workers` above 1, chunks in the same batch cannot reuse each other's action names, which can produce duplicate actions on corpora where many documents describe the same operation.
+- Tables in PDFs need `--parser docling`; merged cells in DOCX and HTML tables are flattened.
 - Conflict detection covers single-comparison thresholds (`params.amount > 50000`) with the same outcome. Overlapping compound conditions are not detected.
 - Dates are recognised as `YYYY-MM-DD` and `2026年12月1日`; "effective from" detection knows Chinese (`自…起`) and English (`effective from …`).
 - A verified, compiling rule is still the model's reading of a sentence. Verification proves the sentence exists, not that the rule means the same thing -- which is why approval is a human step.
 
 ## 🗺️ Roadmap
 
+- [x] Tables inside documents (Markdown, DOCX, HTML) as rule text and as data
+- [x] Long corpora: concurrent extraction, answer cache with resume, retries, optional chunk filter
 - [ ] Long documents: retrieval of relevant chunks per action instead of every chunk
 - [ ] Rule conflicts beyond thresholds (overlapping conditions, deny vs. approve), via an SMT check
 - [ ] Incremental rebuilds: diff a new document against an approved ontology, propose a patch

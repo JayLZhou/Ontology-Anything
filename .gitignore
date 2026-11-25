@@ -14,3 +14,6 @@ venv/
 onto-out/
 out/
 *.db
+.llm-cache/
+procurement-out/
+demo-out/

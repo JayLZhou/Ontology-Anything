@@ -35,7 +35,7 @@ def _write_outputs(draft: Draft, out: Path) -> None:
 
 def cmd_build(args) -> int:
     try:
-        corpus = load_corpus(args.inputs, parser=args.parser)
+        corpus = load_corpus(args.inputs, parser=args.parser, window=args.chunk_size, doc_tables=args.doc_tables)
     except FileNotFoundError as exc:
         print(f"error: no such file or folder: {exc}", file=sys.stderr)
         return 1
@@ -46,9 +46,14 @@ def cmd_build(args) -> int:
         return 1
     print(f"loaded {len(corpus.documents)} documents, {len(corpus.tables)} tables"
           + (f", skipped {len(corpus.skipped)}" if corpus.skipped else ""))
-    model = None if args.llm == "none" else llm_mod.from_spec(args.llm, args.model)
-    draft = build(corpus, model, name=args.name, progress=lambda m: print(f"  {m}"), today=args.today)
     out = Path(args.out)
+    cache_dir = None if args.no_cache else Path(args.cache_dir or out / ".llm-cache")
+    model = None if args.llm == "none" else llm_mod.from_spec(args.llm, args.model, cache_dir=cache_dir)
+    draft = build(corpus, model, name=args.name, progress=lambda m: print(f"  {m}"), today=args.today,
+                  workers=args.workers, skip_irrelevant=args.skip_irrelevant)
+    cache = model if isinstance(model, llm_mod.CachedLLM) else getattr(model, "inner", None)
+    if isinstance(cache, llm_mod.CachedLLM):
+        print(f"  model calls: {cache.misses} new, {cache.hits} answered from {cache.cache_dir}")
     _write_outputs(draft, out)
     print(f"wrote {out / 'review.md'}, {out / 'ontology.draft.yaml'}, {out / 'draft.json'}")
     if draft.conflicts:
@@ -105,6 +110,7 @@ def cmd_demo(args) -> int:
     print(f"== 1. build from {EXAMPLE / 'docs'} and {EXAMPLE / 'data'} (recorded LLM answers)")
     rc = cmd_build(argparse.Namespace(
         inputs=[str(EXAMPLE / "docs"), str(EXAMPLE / "data")], out=str(work), parser="builtin",
+        chunk_size=6000, doc_tables="auto", workers=1, skip_irrelevant=False, cache_dir=None, no_cache=True,
         llm=f"replay:{EXAMPLE / 'cassette.json'}", model=None, name="procurement", today=args.today,
     ))
     if rc:
@@ -171,6 +177,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--parser", default="builtin", choices=["builtin", "docling"])
     p.add_argument("--name", default="ontology")
     p.add_argument("--today", help="YYYY-MM-DD used to judge effective dates (default: today)")
+    p.add_argument("--workers", type=int, default=int(os.environ.get("OA_WORKERS", "1")),
+                   help="extraction calls sent at a time (default 1, or $OA_WORKERS)")
+    p.add_argument("--chunk-size", type=int, default=6000, help="characters per document chunk (default 6000)")
+    p.add_argument("--skip-irrelevant", action="store_true",
+                   help="do not send chunks without any rule-like wording to the model")
+    p.add_argument("--doc-tables", default="auto", choices=["auto", "all", "off"],
+                   help="tables inside documents that also become data: those with an id column (auto), all, or none")
+    p.add_argument("--cache-dir", help="where model answers are cached (default <out>/.llm-cache)")
+    p.add_argument("--no-cache", action="store_true", help="always call the model, even for prompts seen before")
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("approve", help="turn a reviewed draft into ontology.yaml + seed.json")

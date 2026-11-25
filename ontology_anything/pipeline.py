@@ -19,6 +19,7 @@ import copy
 import json
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -26,7 +27,7 @@ from nano_onto import Ontology, SchemaError
 from nano_onto.schema import PRIMITIVE_TYPES
 
 from . import prompts
-from .documents import Corpus, normalize_date
+from .documents import Corpus, looks_normative, normalize_date
 from .llm import LLM, LLMError, parse_json
 from .tables import infer_tables
 
@@ -95,16 +96,15 @@ def _compile_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
-def _ask(llm: LLM, key: str, system: str, user: str, notes: list[str]) -> dict[str, Any]:
+def _ask(llm: LLM, key: str, system: str, user: str) -> tuple[dict[str, Any], str | None]:
+    """The model's answer as a dict, plus a note when it could not be used."""
     try:
         data = parse_json(llm.complete(key, system, user))
     except LLMError as exc:
-        notes.append(f"LLM call {key} failed: {exc}")
-        return {}
+        return {}, f"LLM call {key} failed: {exc}"
     if not isinstance(data, dict):
-        notes.append(f"LLM call {key} returned {type(data).__name__}, expected an object")
-        return {}
-    return data
+        return {}, f"LLM call {key} returned {type(data).__name__}, expected an object"
+    return data, None
 
 
 # --------------------------------------------------------------- pipeline
@@ -116,9 +116,21 @@ def build(
     name: str = "ontology",
     progress: Progress | None = None,
     today: str | None = None,
+    workers: int = 1,
+    skip_irrelevant: bool = False,
 ) -> Draft:
+    """Build a draft ontology.
+
+    ``workers`` > 1 sends that many extraction calls at a time. Chunks in the
+    same batch do not see the actions the others find, only those of earlier
+    batches; with ``workers=1`` every chunk sees everything before it.
+    ``skip_irrelevant`` does not send chunks without any rule-like wording
+    (see :func:`ontology_anything.documents.looks_normative`); they are listed
+    in the notes.
+    """
     say = progress or (lambda _msg: None)
-    notes: list[str] = list(corpus.skipped)
+    workers = max(1, int(workers))
+    notes: list[str] = list(corpus.skipped) + list(corpus.notes)
     items: dict[str, dict[str, Any]] = {}
 
     # 1. tables ---------------------------------------------------------
@@ -143,23 +155,43 @@ def build(
     if llm is not None and corpus.documents:
         # 2. enrich -----------------------------------------------------
         excerpts = [(d.doc_id, d.text[:2000]) for d in corpus.documents[:12]]
-        data = _ask(llm, "enrich", *prompts.enrich_prompt(object_types, link_types, excerpts), notes)
+        data, problem = _ask(llm, "enrich", *prompts.enrich_prompt(object_types, link_types, excerpts))
+        if problem:
+            notes.append(problem)
         _apply_enrichment(data, object_types, roles, items, notes)
         say(f"enrich: {len(roles)} roles, {len(object_types)} object types")
 
         # 3. extract ----------------------------------------------------
-        for doc in corpus.documents:
-            for chunk in doc.chunks:
-                key = f"extract:{chunk.key}"
+        jobs = [(doc, chunk) for doc in corpus.documents for chunk in doc.chunks]
+        if skip_irrelevant:
+            skipped = [chunk.key for _, chunk in jobs if not looks_normative(chunk.text)]
+            jobs = [(doc, chunk) for doc, chunk in jobs if looks_normative(chunk.text)]
+            if skipped:
+                notes.append(f"skipped {len(skipped)} chunk(s) with no rule-like wording: {', '.join(skipped)}")
+        last_chunk = {doc.doc_id: chunk.key for doc, chunk in jobs}
+        pool = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+        try:
+            for start in range(0, len(jobs), workers):
+                batch = jobs[start:start + workers]
+                # every call of a batch gets the same view of what is known so far
                 known = {n: list(a.get("parameters", {})) for n, a in actions.items()}
-                data = _ask(
-                    llm, key,
-                    *prompts.extract_prompt(doc.doc_id, chunk.text, object_types, link_types,
-                                            list(roles.values()), known),
-                    notes,
-                )
-                _collect(data, doc, roles, actions, rules, facts, notes)
-            say(f"extract: {doc.doc_id}")
+                role_list = [dict(r) for r in roles.values()]
+                calls = [
+                    (f"extract:{chunk.key}",
+                     *prompts.extract_prompt(doc.doc_id, chunk.text, object_types, link_types, role_list, known))
+                    for doc, chunk in batch
+                ]
+                answers = (list(pool.map(lambda call: _ask(llm, *call), calls)) if pool
+                           else [_ask(llm, *call) for call in calls])
+                for (doc, chunk), (data, problem) in zip(batch, answers):  # merge in document order
+                    if problem:
+                        notes.append(problem)
+                    _collect(data, doc, roles, actions, rules, facts, notes)
+                    if last_chunk[doc.doc_id] == chunk.key:
+                        say(f"extract: {doc.doc_id}" + (f" ({len(doc.chunks)} chunks)" if len(doc.chunks) > 1 else ""))
+        finally:
+            if pool:
+                pool.shutdown(wait=True, cancel_futures=True)
     elif corpus.documents:
         notes.append("no LLM configured: documents were loaded but not analysed")
 
