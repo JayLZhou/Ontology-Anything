@@ -135,14 +135,37 @@ def cmd_demo(args) -> int:
     return 0
 
 
+def load_dotenv(path: str | Path = ".env") -> list[str]:
+    """Read KEY=VALUE lines from ``path`` into the environment; real environment variables win."""
+    path = Path(path)
+    if not path.is_file():
+        return []
+    loaded = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(prog="ontology-anything", description="Documents and tables -> executable ontology")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("build", help="build a draft ontology from files and folders")
     p.add_argument("inputs", nargs="+")
     p.add_argument("-o", "--out", default="onto-out")
-    p.add_argument("--llm", default=os.environ.get("OA_LLM", "openai"),
+    p.add_argument("--llm", default=None,
                    help="openai | replay:<cassette.json> | record:<cassette.json> | none")
     p.add_argument("--model", help="model name (default $OA_MODEL)")
     p.add_argument("--parser", default="builtin", choices=["builtin", "docling"])
@@ -164,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_demo)
 
     args = parser.parse_args(argv)
+    if getattr(args, "llm", "") is None:
+        args.llm = os.environ.get("OA_LLM", "openai")
     try:
         return args.func(args)
     except llm_mod.LLMError as exc:

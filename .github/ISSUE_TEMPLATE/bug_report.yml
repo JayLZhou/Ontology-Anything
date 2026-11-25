@@ -1,0 +1,50 @@
+name: Bug Report
+description: Something crashed, or the draft / approved ontology is wrong
+title: "[Bug]: "
+labels: ["bug"]
+
+body:
+  - type: checkboxes
+    id: existingcheck
+    attributes:
+      label: Before filing
+      options:
+        - label: I have searched the existing issues and this bug is not already filed.
+        - label: I removed API keys and confidential text from everything I am pasting below.
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: What went wrong? Include the full error message or traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The command you ran and, if you can share them, the inputs. A cassette recorded with
+        `--llm record:<file>` lets us replay your run exactly without your API key.
+      placeholder: ontology-anything build ./docs ./data -o out --llm record:out/cassette.json
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: review
+    attributes:
+      label: Relevant part of review.md or approval.log
+      render: markdown
+  - type: input
+    id: model
+    attributes:
+      label: Model and endpoint
+      placeholder: deepseek-chat via https://api.deepseek.com/v1, or "replay"
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Ontology-Anything, nano-onto, Python, operating system
+      placeholder: ontology-anything 0.1.0, nano-onto 0.2.0, Python 3.12, macOS 14

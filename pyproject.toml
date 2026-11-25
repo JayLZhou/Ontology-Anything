@@ -14,6 +14,15 @@ dependencies = [
     "nano-onto @ git+https://github.com/JayLZhou/nano-ontology.git",
     "PyYAML>=6.0",
 ]
+authors = [{ name = "The Ontology-Anything Authors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 keywords = ["ontology", "knowledge-graph", "llm", "agents", "information-extraction", "palantir"]
 
 [project.optional-dependencies]

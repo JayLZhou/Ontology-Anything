@@ -20,3 +20,8 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
       - run: ontology-anything demo
+      - name: examples
+        run: |
+          python examples/procurement_example.py --out /tmp/procurement-out
+          python examples/tables_only_example.py
+          python examples/custom_llm_example.py

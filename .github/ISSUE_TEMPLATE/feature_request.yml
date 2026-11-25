@@ -1,0 +1,27 @@
+name: Feature Request
+description: Suggest an idea or improvement
+title: "[Feature Request]: "
+labels: ["enhancement"]
+
+body:
+  - type: checkboxes
+    id: existingcheck
+    attributes:
+      label: Before filing
+      options:
+        - label: I have searched the existing issues and the roadmap in the README.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The documents, rules or workflow this would help with. A short example of the source text is ideal.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds or alternatives you have tried

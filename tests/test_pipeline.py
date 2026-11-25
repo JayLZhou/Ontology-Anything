@@ -325,3 +325,49 @@ def test_html_documents(tmp_path):
         encoding="utf-8")
     doc = load_corpus([tmp_path]).documents[0]
     assert "Purchases over 500 need approval." in doc.text and "p{}" not in doc.text
+
+
+# ------------------------------------------------------- examples and config
+
+@pytest.mark.parametrize("script, expect", [
+    ("procurement_example.py", "['cfo', 'dept_manager']"),
+    ("tables_only_example.py", "link supplier: PurchaseOrder -> Supplier"),
+    ("custom_llm_example.py", "both drafts are identical"),
+])
+def test_example_scripts_run(script, expect, tmp_path):
+    import subprocess
+    import sys
+
+    done = subprocess.run([sys.executable, str(EXAMPLE.parent / script)], cwd=tmp_path,
+                          capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert expect in done.stdout
+
+
+def test_dotenv_fills_in_but_never_overrides(tmp_path, monkeypatch):
+    from ontology_anything.cli import load_dotenv
+
+    env = tmp_path / ".env"
+    env.write_text("# comment\nOA_MODEL=from-file\nexport OA_BASE_URL=\"http://x/v1\"  \n"
+                   "OA_API_KEY=abc # trailing comment\nnot a pair\n", encoding="utf-8")
+    monkeypatch.setenv("OA_MODEL", "from-shell")
+    monkeypatch.delenv("OA_BASE_URL", raising=False)
+    monkeypatch.delenv("OA_API_KEY", raising=False)
+    import os
+
+    try:
+        assert sorted(load_dotenv(env)) == ["OA_API_KEY", "OA_BASE_URL"]
+        assert os.environ["OA_MODEL"] == "from-shell"
+        assert os.environ["OA_BASE_URL"] == "http://x/v1" and os.environ["OA_API_KEY"] == "abc"
+    finally:
+        os.environ.pop("OA_BASE_URL", None)
+        os.environ.pop("OA_API_KEY", None)
+    assert load_dotenv(tmp_path / "missing") == []
+
+
+def test_python_dash_m_entry_point():
+    import subprocess
+    import sys
+
+    done = subprocess.run([sys.executable, "-m", "ontology_anything", "--help"], capture_output=True, text=True)
+    assert done.returncode == 0 and "build" in done.stdout

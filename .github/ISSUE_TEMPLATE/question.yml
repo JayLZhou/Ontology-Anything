@@ -1,0 +1,23 @@
+name: Question
+description: Ask how to use Ontology-Anything
+title: "[Question]: "
+labels: ["question"]
+
+body:
+  - type: checkboxes
+    id: existingcheck
+    attributes:
+      label: Before asking
+      options:
+        - label: I have read the README and the guides in docs/.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Commands, inputs or output that help explain the question.
